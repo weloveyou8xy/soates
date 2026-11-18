@@ -3,7 +3,7 @@
 **The music player built for developers.**
 YouTube audio streaming — no video, no clutter, no compromise.
 
-by Infinite Innovative · developed by 8xy
+Published by the House of Heroia · developed by 8xy
 
 ## Download
 
