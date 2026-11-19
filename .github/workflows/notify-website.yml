@@ -1,0 +1,16 @@
+# Tells soates.org (weloveyou8xy/soatesweb) to rebuild as soon as a release is published,
+# so the download pages show the new version right away.
+name: Notify website
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh api repos/weloveyou8xy/soatesweb/dispatches -f event_type=soates-release
+        env:
+          GH_TOKEN: ${{ secrets.SOATESWEB_DISPATCH_TOKEN }}
