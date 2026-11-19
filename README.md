@@ -1,4 +1,4 @@
-# Soates
+# Soates | https://soates.org
 
 **The music player built for developers.**
 YouTube audio streaming — no video, no clutter, no compromise.
@@ -16,4 +16,6 @@ run `Soates-Setup-x.x.x.exe`.
 
 The app updates itself automatically — install once, stay current.
 
-*Closed beta — invite only.*
+*Open Beta*
+
+**Read more on the offical Soates Website [https://soates.org]**
