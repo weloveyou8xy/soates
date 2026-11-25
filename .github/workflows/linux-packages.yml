@@ -1,0 +1,82 @@
+# Builds the Linux packages of a Soates release on a Linux runner.
+#
+# The desktop app is packaged on Windows, where Linux file modes and symlinks
+# get lost, so the release flow uploads the packaged Linux app as
+# `Soates-<version>-linux-unpacked.tar.gz`. This job turns it into:
+#   Soates-<version>-x86_64.AppImage   (self-updating, via latest-linux.yml)
+#   soates_<version>_amd64.deb
+#   Soates-<version>-linux-x64.tar.gz
+# starts the AppImage once under a virtual display as a smoke test, uploads
+# everything to the release and removes the intermediate archive.
+name: Linux packages
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag (for example v1.5.0)
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    if: github.event_name == 'workflow_dispatch' || (startsWith(github.event.release.tag_name, 'v') && !github.event.release.prerelease)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: .github/linux
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Download the packaged app
+        run: |
+          VERSION="${TAG#v}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p "Soates-${VERSION}-linux-unpacked.tar.gz" -D in
+          mkdir -p work && tar xzf "in/Soates-${VERSION}-linux-unpacked.tar.gz" -C work
+          APPDIR="$(find work -mindepth 1 -maxdepth 1 -type d | head -1)"
+          # Restore the modes Windows cannot store.
+          chmod 755 "$APPDIR/soates" "$APPDIR/chrome_crashpad_handler" "$APPDIR/chrome-sandbox"
+          find "$APPDIR" -name '*.so*' -exec chmod 755 {} +
+          echo "APPDIR=$APPDIR" >> "$GITHUB_ENV"
+
+      - name: Build AppImage, deb and tar.gz
+        working-directory: .github/linux
+        run: |
+          cat > package.json <<EOF
+          { "name": "soates", "productName": "Soates", "version": "${VERSION}",
+            "description": "A music player that gives every song a beautiful room.",
+            "author": { "name": "8xy | House of Heroia", "email": "office@heroia.org" },
+            "homepage": "https://soates.org", "license": "UNLICENSED" }
+          EOF
+          npx --yes electron-builder@26.18.0 --linux --x64 --prepackaged "$GITHUB_WORKSPACE/$APPDIR" \
+            --config electron-builder.json --publish never
+          ls -la out
+
+      - name: Smoke test (start the AppImage headless for 20 s)
+        working-directory: .github/linux/out
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq xvfb libfuse2t64 >/dev/null || sudo apt-get install -y -qq xvfb libfuse2 >/dev/null
+          chmod +x "Soates-${VERSION}-x86_64.AppImage"
+          timeout 20 xvfb-run -a "./Soates-${VERSION}-x86_64.AppImage" --appimage-extract-and-run --no-sandbox > run.log 2>&1 || code=$?
+          tail -20 run.log
+          # 124 = still running when timeout stopped it, which is what we want.
+          if [ "${code:-0}" != "124" ]; then echo "::error::Soates exited early (code ${code:-0})"; exit 1; fi
+
+      - name: Upload to the release
+        working-directory: .github/linux/out
+        run: |
+          gh release upload "$TAG" -R "$GITHUB_REPOSITORY" --clobber \
+            "Soates-${VERSION}-x86_64.AppImage" "soates_${VERSION}_amd64.deb" \
+            "Soates-${VERSION}-linux-x64.tar.gz" latest-linux.yml
+          gh release delete-asset "$TAG" "Soates-${VERSION}-linux-unpacked.tar.gz" -R "$GITHUB_REPOSITORY" -y
